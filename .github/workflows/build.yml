@@ -12,22 +12,26 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      # Debugging: List the root directory to see the correct structure
+      # Debugging: List directory contents at root
       - name: List directory contents at root
         run: dir
 
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v1.3
 
-      # Restore NuGet packages in the correct directory
-      - name: Restore NuGet packages
-        run: nuget restore CodeWalker\CodeWalker.RPFExplorer\CodeWalker.RPFExplorer.csproj
-        working-directory: CodeWalker\CodeWalker.RPFExplorer
+      # List directory contents in CodeWalker to confirm path
+      - name: List directory contents in CodeWalker
+        run: dir CodeWalker
 
-      # Build the project in the correct directory
+      # Restore NuGet packages in CodeWalker.RPFExplorer
+      - name: Restore NuGet packages
+        run: nuget restore CodeWalker/CodeWalker.RPFExplorer/CodeWalker.RPFExplorer.csproj
+        working-directory: CodeWalker/CodeWalker.RPFExplorer
+
+      # Build the CodeWalker.RPFExplorer project
       - name: Build CodeWalker.RPFExplorer project
-        run: msbuild CodeWalker\CodeWalker.RPFExplorer\CodeWalker.RPFExplorer.csproj /p:Configuration=Release
-        working-directory: CodeWalker\CodeWalker.RPFExplorer
+        run: msbuild CodeWalker.RPFExplorer.csproj /p:Configuration=Release
+        working-directory: CodeWalker/CodeWalker.RPFExplorer
 
       # Upload Build Artifacts
       - name: Upload Build Artifacts

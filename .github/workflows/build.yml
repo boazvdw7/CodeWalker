@@ -12,10 +12,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      # List directory contents to confirm where we are
-      - name: List directory contents at root
-        run: dir
-
       # Setup MSBuild
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v1.3

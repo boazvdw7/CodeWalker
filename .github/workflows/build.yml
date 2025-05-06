@@ -12,28 +12,34 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      # Debugging: List directory contents at root
+      # List directory contents to confirm where we are
       - name: List directory contents at root
         run: dir
 
+      # Setup MSBuild
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v1.3
 
-      # List directory contents in CodeWalker to confirm path
-      - name: List directory contents in CodeWalker
-        run: dir CodeWalker
+      # Explicitly check if the .csproj file exists using absolute paths
+      - name: Check if .csproj file exists
+        run: |
+          echo Checking if .csproj exists
+          dir D:\a\CodeWalker\CodeWalker\CodeWalker.RPFExplorer
+          dir D:\a\CodeWalker\CodeWalker\CodeWalker.RPFExplorer\CodeWalker.RPFExplorer.csproj
 
-      # Restore NuGet packages in CodeWalker.RPFExplorer
-      - name: Restore NuGet packages
-        run: nuget restore CodeWalker/CodeWalker.RPFExplorer/CodeWalker.RPFExplorer.csproj
-        working-directory: CodeWalker/CodeWalker.RPFExplorer
+      # Now, restore NuGet packages using absolute path
+      - name: Restore NuGet packages with absolute path
+        run: |
+          nuget restore D:\a\CodeWalker\CodeWalker\CodeWalker.RPFExplorer\CodeWalker.RPFExplorer.csproj
+        shell: pwsh
 
-      # Build the CodeWalker.RPFExplorer project
+      # Build the project using the absolute path
       - name: Build CodeWalker.RPFExplorer project
-        run: msbuild CodeWalker.RPFExplorer.csproj /p:Configuration=Release
-        working-directory: CodeWalker/CodeWalker.RPFExplorer
+        run: |
+          msbuild D:\a\CodeWalker\CodeWalker\CodeWalker.RPFExplorer\CodeWalker.RPFExplorer.csproj /p:Configuration=Release
+        shell: pwsh
 
-      # Upload Build Artifacts
+      # Upload build artifacts
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
         with:

@@ -52,6 +52,9 @@ namespace CodeWalker
 
         public bool EditMode { get; private set; } = false;
 
+        private HashSet<string> unpackedFolders = new HashSet<string>();
+
+
         public ThemeBase Theme { get; private set; }
 
 
@@ -72,6 +75,9 @@ namespace CodeWalker
         {
             string tempFolder = Path.Combine(Path.GetTempPath(), "IOVInstall");
             string modsFolder = Path.Combine(GTAFolder.GetCurrentGTAFolderWithTrailingSlash(), "mods");
+
+            UpdateStatus("Installing...");
+
 
             // List to track folders to delete after all operations
             List<string> foldersToDelete = new List<string>();
@@ -103,7 +109,10 @@ namespace CodeWalker
 
                 ProcessXML();
 
-                MessageBox.Show("Installation and reinsertion completed successfully.");
+
+                this.RefreshButton_Click(this, EventArgs.Empty);
+
+                MessageBox.Show("Installation completed successfully.");
 
 
             }
@@ -174,6 +183,24 @@ namespace CodeWalker
                     File.Copy(originalPath, destPath, true);
                 }
 
+
+                // !!!MIGHT BREAK THINGS!!!
+                if (!File.Exists(destPath))
+                {
+                    if (archiveNode.Attributes["createIfNotExist"]?.InnerText == "True")
+                    {
+                        string archiveName = Path.GetFileName(destPath); // gets "dlc.rpf"
+                        // Create an empty RPF file (RPF7 format)
+                        RpfFile.CreateNew(destPath, archiveName, RpfEncryption.OPEN);
+                    }
+                    else
+                    {
+                        MessageBox.Show($"Error: RPF file '{destPath}' not found and createIfNotExist=False.");
+                        continue;
+                    }
+                }
+
+
                 // Open the destination RPF file
                 RpfFile rpf = new RpfFile(destPath, archivePath);
                 rpf.ScanStructure(null, null);
@@ -228,184 +255,7 @@ namespace CodeWalker
                     }
                 }
             }
-
-            MessageBox.Show("Installation and reinsertion completed successfully.");
         }
-        private void MergeFolders(string sourceFolder, string targetFolder)
-        {
-            foreach (string file in Directory.GetFiles(sourceFolder, "*", SearchOption.AllDirectories))
-            {
-                string relativePath = file.Substring(sourceFolder.Length).TrimStart(Path.DirectorySeparatorChar);
-                string targetFilePath = Path.Combine(targetFolder, relativePath);
-
-                string targetDir = Path.GetDirectoryName(targetFilePath);
-                if (!Directory.Exists(targetDir))
-                {
-                    Directory.CreateDirectory(targetDir);
-                }
-
-                File.Copy(file, targetFilePath, true); // Overwrite existing files
-            }
-        }
-
-        private void InstallOivFileOLD(string oivFilePath)
-        {
-            string tempFolder = Path.Combine(Path.GetTempPath(), "IOVInstall");
-            string modsFolder = Path.Combine(GTAFolder.GetCurrentGTAFolderWithTrailingSlash(), "mods");
-
-            // List to track folders to delete after all operations
-            List<string> foldersToDelete = new List<string>();
-
-            try
-            {
-                // Extract the .oiv file
-                if (Directory.Exists(tempFolder))
-                    Directory.Delete(tempFolder, true);
-                System.IO.Compression.ZipFile.ExtractToDirectory(oivFilePath, tempFolder);
-
-                // Recursively find and unpack RPF files in the same folder
-                UnpackRpfFiles(tempFolder, tempFolder);
-
-                // Parse assembly.xml
-                string assemblyXmlPath = Path.Combine(tempFolder, "assembly.xml");
-                if (!File.Exists(assemblyXmlPath))
-                {
-                    MessageBox.Show("Invalid .iov file: Missing assembly.xml");
-                    return;
-                }
-
-                XmlDocument xmlDoc = new XmlDocument();
-                xmlDoc.Load(assemblyXmlPath);
-
-                // Convert asset files in the extracted folder (synchronously)
-                UpdateStatus("Converting assets...");
-                ConvertAssets(tempFolder, tempFolder);
-
-                // Validate that the converted files exist
-                if (!Directory.Exists(tempFolder) || !Directory.EnumerateFiles(tempFolder, "*", SearchOption.AllDirectories).Any())
-                {
-                    MessageBox.Show("Error: No converted files found. Conversion may have failed.");
-                    return;
-                }
-
-                // Repack RPF files in the same folder and delete original RPFs
-                UpdateStatus("Repacking RPF files...");
-                RepackRpfFiles(tempFolder, tempFolder, foldersToDelete);
-
-                // Process <archive> nodes in assembly.xml
-                foreach (XmlNode archiveNode in xmlDoc.SelectNodes("//archive"))
-                {
-                    string archivePath = archiveNode.Attributes["path"]?.InnerText;
-                    if (string.IsNullOrEmpty(archivePath)) continue;
-
-                    string sourcePath = Path.Combine(GTAFolder.GetCurrentGTAFolderWithTrailingSlash(), archivePath);
-                    string destPath = Path.Combine(modsFolder, archivePath);
-
-                    // Ensure the destination is not a directory
-                    if (Directory.Exists(destPath))
-                    {
-                        MessageBox.Show($"Error: A directory with the same name as the file '{destPath}' already exists.");
-                        continue;
-                    }
-
-                    // Copy the RPF file from the GTA V folder to the mods folder if it doesn't already exist
-                    if (!File.Exists(destPath))
-                    {
-                        string destDirectory = Path.GetDirectoryName(destPath);
-                        if (!string.IsNullOrEmpty(destDirectory) && !Directory.Exists(destDirectory))
-                        {
-                            Directory.CreateDirectory(destDirectory);
-                        }
-
-                        if (File.Exists(sourcePath))
-                        {
-                            File.Copy(sourcePath, destPath, true);
-                        }
-                        else
-                        {
-                            MessageBox.Show($"Error: Source RPF file '{sourcePath}' does not exist.");
-                            continue;
-                        }
-                    }
-
-                    // Open the destination RPF file
-                    RpfFile rpf = new RpfFile(destPath, archivePath);
-                    rpf.ScanStructure(null, null);
-
-                    // Automatically set the RPF encryption to OPEN
-                    if (rpf.Encryption != RpfEncryption.OPEN)
-                    {
-                        RpfFile.SetEncryptionType(rpf, RpfEncryption.OPEN);
-                    }
-
-                    // Process <add> elements within the current <archive>
-                    foreach (XmlNode addNode in archiveNode.SelectNodes("add"))
-                    {
-                        string sourceFile = addNode.Attributes["source"]?.InnerText;
-                        string destFile = addNode.InnerText;
-
-                        if (string.IsNullOrEmpty(sourceFile) || string.IsNullOrEmpty(destFile)) continue;
-
-                        string sourceFilePath = Path.Combine(tempFolder, sourceFile);
-                        string destFilePath = destFile.TrimStart('\\');
-
-                        // Locate or create the destination directory in the RPF
-                        RpfDirectoryEntry destDirectory = RpfDirectoryEntry.FindEntry(rpf.Root, Path.GetDirectoryName(destFilePath)) as RpfDirectoryEntry;
-                        if (destDirectory == null)
-                        {
-                            // Create the missing directory structure
-                            string[] pathParts = Path.GetDirectoryName(destFilePath).Split(new[] { '\\' }, StringSplitOptions.RemoveEmptyEntries);
-                            RpfDirectoryEntry currentDir = rpf.Root;
-
-                            foreach (string part in pathParts)
-                            {
-                                RpfDirectoryEntry subDir = currentDir.Directories.FirstOrDefault(d => d.Name.Equals(part, StringComparison.OrdinalIgnoreCase));
-                                if (subDir == null)
-                                {
-                                    subDir = RpfFile.CreateDirectory(currentDir, part);
-                                }
-                                currentDir = subDir;
-                            }
-
-                            destDirectory = currentDir;
-                        }
-
-                        // Add or replace the file in the RPF
-                        if (File.Exists(destFilePath))
-                        {
-                            byte[] fileData = File.ReadAllBytes(sourceFilePath);
-                            RpfFile.CreateFile(destDirectory, Path.GetFileName(destFilePath), fileData, true);
-                        }
-                        else
-                        {
-                            MessageBox.Show($"Error: Source file '{sourceFilePath}' does not exist.");
-                        }
-                    }
-                }
-
-                MessageBox.Show("Installation and reinsertion completed successfully.");
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Error installing .oiv file: {ex.Message}");
-            }
-            finally
-            {
-                // Delete folders after all operations are complete
-                foreach (string folder in foldersToDelete)
-                {
-                    if (Directory.Exists(folder))
-                    {
-                        DeleteDirectoryRecursively(folder);
-                    }
-                }
-
-                // Clean up temporary files
-                if (Directory.Exists(tempFolder))
-                    Directory.Delete(tempFolder, true);
-            }
-        }
-
 
         private void RepackRpfFiles(string sourceFolder, string destinationFolder, List<string> foldersToDelete)
         {
@@ -455,10 +305,6 @@ namespace CodeWalker
 
                     // Add the folder to the list of folders to delete later
                     foldersToDelete.Add(unpackedRpfFolder);
-
-
-
-                    MessageBox.Show($"Repacked RPF: {originalRpfPath}");
                 }
             }
             catch (Exception ex)
@@ -507,8 +353,6 @@ namespace CodeWalker
             return path;
         }
 
-        private HashSet<string> unpackedFolders = new HashSet<string>();
-
         private void UnpackRpfFiles(string sourceFolder, string destinationFolder)
         {
             try
@@ -551,7 +395,6 @@ namespace CodeWalker
                 MessageBox.Show($"Error unpacking RPF files: {ex.Message}");
             }
         }
-
         private void ConvertAssets(string inputFolder, string outputFolder)
         {
             var allPaths = Directory.GetFiles(inputFolder, "*.*", SearchOption.AllDirectories);
@@ -562,12 +405,6 @@ namespace CodeWalker
                     var extension = Path.GetExtension(path).ToLowerInvariant();
                     var relativePath = path.Substring(AppendDirectorySeparatorChar(inputFolder).Length).TrimStart(Path.DirectorySeparatorChar);
                     var outputPath = Path.Combine(outputFolder, relativePath);
-
-                    //if (File.Exists(outputPath))
-                    //{
-                    //    // Skip if the output file already exists
-                    //    continue;
-                    //}
 
                     var outputDir = Path.GetDirectoryName(outputPath);
                     if (!Directory.Exists(outputDir))
@@ -641,63 +478,6 @@ namespace CodeWalker
                 }
             }
         }
-
-
-        //public void ExtractIovFile(string assemblyXmlPath)
-        //{
-        //    if (!File.Exists(assemblyXmlPath))
-        //    {
-        //        MessageBox.Show($"Assembly XML file not found: {assemblyXmlPath}");
-        //        return;
-        //    }
-
-        //    XmlDocument xmlDoc = new XmlDocument();
-        //    xmlDoc.Load(assemblyXmlPath);
-
-        //    string gtaFolder = GTAFolder.GetCurrentGTAFolderWithTrailingSlash();
-        //    string modsFolder = Path.Combine(gtaFolder, "mods");
-
-        //    foreach (XmlNode archiveNode in xmlDoc.SelectNodes("//archive"))
-        //    {
-        //        string archivePath = archiveNode.Attributes["path"]?.InnerText;
-        //        if (string.IsNullOrEmpty(archivePath)) continue;
-
-        //        string sourcePath = Path.Combine(gtaFolder, archivePath);
-        //        string destPath = Path.Combine(modsFolder, archivePath);
-
-        //        // Ensure the destination directory exists
-        //        Directory.CreateDirectory(Path.GetDirectoryName(destPath));
-
-        //        // Copy the RPF file
-        //        if (File.Exists(sourcePath))
-        //        {
-        //            File.Copy(sourcePath, destPath, true);
-        //        }
-
-        //        // Process <add> elements within the current <archive>
-        //        foreach (XmlNode addNode in archiveNode.SelectNodes("add"))
-        //        {
-        //            string sourceFile = addNode.Attributes["source"]?.InnerText;
-        //            string destFile = addNode.InnerText;
-
-        //            if (string.IsNullOrEmpty(sourceFile) || string.IsNullOrEmpty(destFile)) continue;
-
-        //            string sourceFilePath = Path.Combine(gtaFolder, sourceFile);
-        //            string destFilePath = Path.Combine(modsFolder, archivePath, destFile.TrimStart('\\'));
-
-        //            // Ensure the destination directory exists
-        //            Directory.CreateDirectory(Path.GetDirectoryName(destFilePath));
-
-        //            // Copy the file
-        //            if (File.Exists(sourceFilePath))
-        //            {
-        //                File.Copy(sourceFilePath, destFilePath, true);
-        //            }
-        //        }
-        //    }
-
-        //    MessageBox.Show("Extraction completed successfully.");
-        //}
 
         private void SetTheme(string themestr, bool changing = true)
         {

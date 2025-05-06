@@ -1,5 +1,7 @@
 <div align="center">
     <h1>CodeWalker by dexyfex</h1>
+    <h1>!!!Important!!!</h1>
+    This is a modified version of RPF Explorer by dexyfex, if something breaks do not ping the original author regarding my modified version, thx!
 </div>
 
 ## Included Fixes (RPF Explorer):

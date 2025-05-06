@@ -76,6 +76,7 @@
             this.ToolsJenkGenMenu = new System.Windows.Forms.ToolStripMenuItem();
             this.ToolsJenkIndMenu = new System.Windows.Forms.ToolStripMenuItem();
             this.ToolsAssetConverterMenu = new System.Windows.Forms.ToolStripMenuItem();
+            this.ToolsInstallIovMenu = new System.Windows.Forms.ToolStripMenuItem();
             this.OptionsMenu = new System.Windows.Forms.ToolStripMenuItem();
             this.OptionsStartInEditModeMenu = new System.Windows.Forms.ToolStripMenuItem();
             this.OptionsStartInFolderMenu = new System.Windows.Forms.ToolStripMenuItem();
@@ -163,16 +164,12 @@
             this.VSExtender = new WeifenLuo.WinFormsUI.Docking.VisualStudioToolStripExtender(this.components);
             this.CopyToModsFolderButton = new System.Windows.Forms.Button();
             this.ToolsInstallIovMenu = new System.Windows.Forms.ToolStripMenuItem();
-            this.ToolsAssetConverterMenu.DropDownItems.AddRange(new System.Windows.Forms.ToolStripItem[] {
-            this.ToolsInstallIovMenu});
+            this.ToolsAssetConverterMenu = new System.Windows.Forms.ToolStripMenuItem();
 
             // 
             // ToolsInstallIovMenu
             // 
-            this.ToolsInstallIovMenu.Name = "ToolsInstallIovMenu";
-            this.ToolsInstallIovMenu.Size = new System.Drawing.Size(180, 22);
-            this.ToolsInstallIovMenu.Text = "Install .iov";
-            this.ToolsInstallIovMenu.Click += new System.EventHandler(this.ToolsInstallOivMenu_Click);
+
 
             this.MainMenu.SuspendLayout();
             this.MainToolbar.SuspendLayout();
@@ -529,7 +526,8 @@
             this.ToolsRpfBrowserMenu,
             this.ToolsJenkGenMenu,
             this.ToolsJenkIndMenu,
-            this.ToolsAssetConverterMenu});
+            this.ToolsAssetConverterMenu,
+            this.ToolsInstallIovMenu});
             this.ToolsMenu.Name = "ToolsMenu";
             this.ToolsMenu.Size = new System.Drawing.Size(46, 20);
             this.ToolsMenu.Text = "Tools";
@@ -575,6 +573,13 @@
             this.ToolsAssetConverterMenu.Size = new System.Drawing.Size(161, 22);
             this.ToolsAssetConverterMenu.Text = "Asset Converter";
             this.ToolsAssetConverterMenu.Click += new System.EventHandler(this.ToolsAssetConverterMenu_Click);
+            // 
+            // ToolsInstallIovMenu
+            // 
+            this.ToolsInstallIovMenu.Name = "ToolsInstallIovMenu";
+            this.ToolsInstallIovMenu.Size = new System.Drawing.Size(161, 22);
+            this.ToolsInstallIovMenu.Text = "Install .oiv";
+            this.ToolsInstallIovMenu.Click += new System.EventHandler(this.ToolsInstallOivMenu_Click);
             // 
             // OptionsMenu
             // 

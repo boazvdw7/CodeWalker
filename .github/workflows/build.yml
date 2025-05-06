@@ -12,6 +12,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
+      # Debugging: List directory contents
+      - name: List directory contents
+        run: dir
+
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v1.3
 

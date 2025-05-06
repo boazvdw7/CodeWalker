@@ -22,12 +22,12 @@ jobs:
       # Restore NuGet packages in CodeWalker.RPFExplorer directory
       - name: Restore NuGet packages
         run: nuget restore CodeWalker.RPFExplorer.csproj
-        working-directory: CodeWalker/CodeWalker.RPFExplorer
+        working-directory: CodeWalker\CodeWalker.RPFExplorer
 
       # Build the project in CodeWalker.RPFExplorer directory
       - name: Build CodeWalker.RPFExplorer project
         run: msbuild CodeWalker.RPFExplorer.csproj /p:Configuration=Release
-        working-directory: CodeWalker/CodeWalker.RPFExplorer
+        working-directory: CodeWalker\CodeWalker.RPFExplorer
 
       # Upload Build Artifacts
       - name: Upload Build Artifacts

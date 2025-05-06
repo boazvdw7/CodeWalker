@@ -32,7 +32,7 @@ jobs:
       # Build the project using the absolute path
       - name: Build CodeWalker.RPFExplorer project
         run: |
-          msbuild D:\a\CodeWalker\CodeWalker\CodeWalker.RPFExplorer\CodeWalker.RPFExplorer.csproj /p:Configuration=Release
+          msbuild D:\a\CodeWalker\CodeWalker\CodeWalker.RPFExplorer\CodeWalker.RPFExplorer.csproj /p:Configuration=Release /p:BuildProjectReferences=false
         shell: pwsh
 
       # Upload build artifacts

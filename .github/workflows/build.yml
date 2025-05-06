@@ -22,6 +22,12 @@ jobs:
       - name: Change directory to CodeWalker.RPFExplorer
         run: cd D:\a\CodeWalker\CodeWalker\CodeWalker.RPFExplorer
 
+        
+      # Debugging: List directory contents
+      - name: List directory contents2
+        run: dir
+
+
       - name: Restore NuGet packages
         run: nuget restore CodeWalker.RPFExplorer.csproj
 

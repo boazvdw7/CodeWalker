@@ -19,14 +19,14 @@ jobs:
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v1.3
 
-      - name: Setup NuGet
-        uses: NuGet/setup-nuget@v1
+      - name: Change directory to CodeWalker.RPFExplorer
+        run: cd D:\a\CodeWalker\CodeWalker\CodeWalker.RPFExplorer
 
       - name: Restore NuGet packages
-        run: nuget restore CodeWalker/CodeWalker.RPFExplorer/CodeWalker.RPFExplorer.csproj
+        run: nuget restore CodeWalker.RPFExplorer.csproj
 
       - name: Build CodeWalker.RPFExplorer project
-        run: msbuild CodeWalker/CodeWalker.RPFExplorer/CodeWalker.RPFExplorer.csproj /p:Configuration=Release
+        run: msbuild CodeWalker.RPFExplorer.csproj /p:Configuration=Release
 
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4

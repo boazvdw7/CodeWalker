@@ -68,6 +68,637 @@ namespace CodeWalker
             GTAFolder.UpdateEnhancedFormTitle(this);
         }
 
+        private void InstallOivFile(string oivFilePath)
+        {
+            string tempFolder = Path.Combine(Path.GetTempPath(), "IOVInstall");
+            string modsFolder = Path.Combine(GTAFolder.GetCurrentGTAFolderWithTrailingSlash(), "mods");
+
+            // List to track folders to delete after all operations
+            List<string> foldersToDelete = new List<string>();
+
+            try
+            {
+                // Extract the .oiv file
+                if (Directory.Exists(tempFolder))
+                    Directory.Delete(tempFolder, true);
+                System.IO.Compression.ZipFile.ExtractToDirectory(oivFilePath, tempFolder);
+
+                // Recursively find and unpack RPF files in the same folder
+                UnpackRpfFiles(tempFolder, tempFolder);
+
+                // Convert asset files in the extracted folder (synchronously)
+                UpdateStatus("Converting assets...");
+                ConvertAssets(tempFolder, tempFolder); // Ensure this is synchronous
+
+                // Validate that the converted files exist
+                if (!Directory.Exists(tempFolder) || !Directory.EnumerateFiles(tempFolder, "*", SearchOption.AllDirectories).Any())
+                {
+                    MessageBox.Show("Error: No converted files found. Conversion may have failed.");
+                    return;
+                }
+
+                // Repack RPF files in the same folder and delete original RPFs
+                UpdateStatus("Repacking RPF files...");
+                RepackRpfFiles(tempFolder, tempFolder, foldersToDelete);
+
+                ProcessXML();
+
+                MessageBox.Show("Installation and reinsertion completed successfully.");
+
+
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error installing .oiv file: {ex.Message}");
+            }
+            finally
+            {
+                // Delete folders after all operations are complete
+                foreach (string folder in foldersToDelete)
+                {
+                    if (Directory.Exists(folder))
+                    {
+                        DeleteDirectoryRecursively(folder);
+                    }
+                }
+
+                // Clean up temporary files
+                if (Directory.Exists(tempFolder))
+                    Directory.Delete(tempFolder, true);
+            }
+        }
+
+        private void ProcessXML()
+        {
+            string tempFolder = Path.Combine(Path.GetTempPath(), "IOVInstall");
+            string modsFolder = Path.Combine(GTAFolder.GetCurrentGTAFolderWithTrailingSlash(), "mods");
+            string gtaRootFolder = GTAFolder.GetCurrentGTAFolderWithTrailingSlash();
+
+            string assemblyXmlPath = Path.Combine(tempFolder, "assembly.xml");
+            if (!File.Exists(assemblyXmlPath))
+            {
+                MessageBox.Show("Invalid .iov file: Missing assembly.xml");
+                return;
+            }
+
+            XmlDocument xmlDoc = new XmlDocument();
+            xmlDoc.Load(assemblyXmlPath);
+
+            // Process <archive> nodes in assembly.xml
+            foreach (XmlNode archiveNode in xmlDoc.SelectNodes("//archive"))
+            {
+                string archivePath = archiveNode.Attributes["path"]?.InnerText;
+                if (string.IsNullOrEmpty(archivePath)) continue;
+
+                // Construct the source path for the original RPF file in the GTA V root directory
+                string originalPath = Path.Combine(gtaRootFolder, archivePath.Replace('/', '\\'));
+                if (!File.Exists(originalPath))
+                {
+                    MessageBox.Show($"Error: Original RPF file '{originalPath}' does not exist.");
+                    continue;
+                }
+
+                // Construct the destination path in the mods folder
+                string destPath = Path.Combine(modsFolder, archivePath.Replace('/', '\\'));
+
+                // Ensure the destination directory exists
+                string destDirectory = Path.GetDirectoryName(destPath);
+                if (!string.IsNullOrEmpty(destDirectory) && !Directory.Exists(destDirectory))
+                {
+                    Directory.CreateDirectory(destDirectory);
+                }
+
+                // Copy the original RPF file to the mods folder if it doesn't already exist
+                if (!File.Exists(destPath))
+                {
+                    File.Copy(originalPath, destPath, true);
+                }
+
+                // Open the destination RPF file
+                RpfFile rpf = new RpfFile(destPath, archivePath);
+                rpf.ScanStructure(null, null);
+
+                // Automatically set the RPF encryption to OPEN
+                if (rpf.Encryption != RpfEncryption.OPEN)
+                {
+                    RpfFile.SetEncryptionType(rpf, RpfEncryption.OPEN);
+                }
+
+                // Process <add> elements within the current <archive>
+                foreach (XmlNode addNode in archiveNode.SelectNodes("add"))
+                {
+                    string sourceFile = addNode.Attributes["source"]?.InnerText;
+                    string destFile = addNode.InnerText;
+
+                    if (string.IsNullOrEmpty(sourceFile) || string.IsNullOrEmpty(destFile)) continue;
+
+                    string sourceFilePath = Path.Combine(tempFolder, "content", sourceFile.Replace('/', '\\'));
+                    string destFilePath = destFile.Replace('/', '\\').TrimStart('\\');
+
+                    // Locate or create the destination directory in the RPF
+                    RpfDirectoryEntry destRpfDirectory = RpfDirectoryEntry.FindEntry(rpf.Root, Path.GetDirectoryName(destFilePath)) as RpfDirectoryEntry;
+                    if (destRpfDirectory == null)
+                    {
+                        // Create the missing directory structure
+                        string[] pathParts = Path.GetDirectoryName(destFilePath).Split(new[] { '\\' }, StringSplitOptions.RemoveEmptyEntries);
+                        RpfDirectoryEntry currentDir = rpf.Root;
+
+                        foreach (string part in pathParts)
+                        {
+                            RpfDirectoryEntry subDir = currentDir.Directories.FirstOrDefault(d => d.Name.Equals(part, StringComparison.OrdinalIgnoreCase));
+                            if (subDir == null)
+                            {
+                                subDir = RpfFile.CreateDirectory(currentDir, part);
+                            }
+                            currentDir = subDir;
+                        }
+
+                        destRpfDirectory = currentDir;
+                    }
+
+                    // Add or replace the file in the RPF
+                    if (File.Exists(sourceFilePath))
+                    {
+                        byte[] fileData = File.ReadAllBytes(sourceFilePath);
+                        RpfFile.CreateFile(destRpfDirectory, Path.GetFileName(destFilePath), fileData, true);
+                    }
+                    else
+                    {
+                        MessageBox.Show($"Error: Source file '{sourceFilePath}' does not exist.");
+                    }
+                }
+            }
+
+            MessageBox.Show("Installation and reinsertion completed successfully.");
+        }
+        private void MergeFolders(string sourceFolder, string targetFolder)
+        {
+            foreach (string file in Directory.GetFiles(sourceFolder, "*", SearchOption.AllDirectories))
+            {
+                string relativePath = file.Substring(sourceFolder.Length).TrimStart(Path.DirectorySeparatorChar);
+                string targetFilePath = Path.Combine(targetFolder, relativePath);
+
+                string targetDir = Path.GetDirectoryName(targetFilePath);
+                if (!Directory.Exists(targetDir))
+                {
+                    Directory.CreateDirectory(targetDir);
+                }
+
+                File.Copy(file, targetFilePath, true); // Overwrite existing files
+            }
+        }
+
+        private void InstallOivFileOLD(string oivFilePath)
+        {
+            string tempFolder = Path.Combine(Path.GetTempPath(), "IOVInstall");
+            string modsFolder = Path.Combine(GTAFolder.GetCurrentGTAFolderWithTrailingSlash(), "mods");
+
+            // List to track folders to delete after all operations
+            List<string> foldersToDelete = new List<string>();
+
+            try
+            {
+                // Extract the .oiv file
+                if (Directory.Exists(tempFolder))
+                    Directory.Delete(tempFolder, true);
+                System.IO.Compression.ZipFile.ExtractToDirectory(oivFilePath, tempFolder);
+
+                // Recursively find and unpack RPF files in the same folder
+                UnpackRpfFiles(tempFolder, tempFolder);
+
+                // Parse assembly.xml
+                string assemblyXmlPath = Path.Combine(tempFolder, "assembly.xml");
+                if (!File.Exists(assemblyXmlPath))
+                {
+                    MessageBox.Show("Invalid .iov file: Missing assembly.xml");
+                    return;
+                }
+
+                XmlDocument xmlDoc = new XmlDocument();
+                xmlDoc.Load(assemblyXmlPath);
+
+                // Convert asset files in the extracted folder (synchronously)
+                UpdateStatus("Converting assets...");
+                ConvertAssets(tempFolder, tempFolder);
+
+                // Validate that the converted files exist
+                if (!Directory.Exists(tempFolder) || !Directory.EnumerateFiles(tempFolder, "*", SearchOption.AllDirectories).Any())
+                {
+                    MessageBox.Show("Error: No converted files found. Conversion may have failed.");
+                    return;
+                }
+
+                // Repack RPF files in the same folder and delete original RPFs
+                UpdateStatus("Repacking RPF files...");
+                RepackRpfFiles(tempFolder, tempFolder, foldersToDelete);
+
+                // Process <archive> nodes in assembly.xml
+                foreach (XmlNode archiveNode in xmlDoc.SelectNodes("//archive"))
+                {
+                    string archivePath = archiveNode.Attributes["path"]?.InnerText;
+                    if (string.IsNullOrEmpty(archivePath)) continue;
+
+                    string sourcePath = Path.Combine(GTAFolder.GetCurrentGTAFolderWithTrailingSlash(), archivePath);
+                    string destPath = Path.Combine(modsFolder, archivePath);
+
+                    // Ensure the destination is not a directory
+                    if (Directory.Exists(destPath))
+                    {
+                        MessageBox.Show($"Error: A directory with the same name as the file '{destPath}' already exists.");
+                        continue;
+                    }
+
+                    // Copy the RPF file from the GTA V folder to the mods folder if it doesn't already exist
+                    if (!File.Exists(destPath))
+                    {
+                        string destDirectory = Path.GetDirectoryName(destPath);
+                        if (!string.IsNullOrEmpty(destDirectory) && !Directory.Exists(destDirectory))
+                        {
+                            Directory.CreateDirectory(destDirectory);
+                        }
+
+                        if (File.Exists(sourcePath))
+                        {
+                            File.Copy(sourcePath, destPath, true);
+                        }
+                        else
+                        {
+                            MessageBox.Show($"Error: Source RPF file '{sourcePath}' does not exist.");
+                            continue;
+                        }
+                    }
+
+                    // Open the destination RPF file
+                    RpfFile rpf = new RpfFile(destPath, archivePath);
+                    rpf.ScanStructure(null, null);
+
+                    // Automatically set the RPF encryption to OPEN
+                    if (rpf.Encryption != RpfEncryption.OPEN)
+                    {
+                        RpfFile.SetEncryptionType(rpf, RpfEncryption.OPEN);
+                    }
+
+                    // Process <add> elements within the current <archive>
+                    foreach (XmlNode addNode in archiveNode.SelectNodes("add"))
+                    {
+                        string sourceFile = addNode.Attributes["source"]?.InnerText;
+                        string destFile = addNode.InnerText;
+
+                        if (string.IsNullOrEmpty(sourceFile) || string.IsNullOrEmpty(destFile)) continue;
+
+                        string sourceFilePath = Path.Combine(tempFolder, sourceFile);
+                        string destFilePath = destFile.TrimStart('\\');
+
+                        // Locate or create the destination directory in the RPF
+                        RpfDirectoryEntry destDirectory = RpfDirectoryEntry.FindEntry(rpf.Root, Path.GetDirectoryName(destFilePath)) as RpfDirectoryEntry;
+                        if (destDirectory == null)
+                        {
+                            // Create the missing directory structure
+                            string[] pathParts = Path.GetDirectoryName(destFilePath).Split(new[] { '\\' }, StringSplitOptions.RemoveEmptyEntries);
+                            RpfDirectoryEntry currentDir = rpf.Root;
+
+                            foreach (string part in pathParts)
+                            {
+                                RpfDirectoryEntry subDir = currentDir.Directories.FirstOrDefault(d => d.Name.Equals(part, StringComparison.OrdinalIgnoreCase));
+                                if (subDir == null)
+                                {
+                                    subDir = RpfFile.CreateDirectory(currentDir, part);
+                                }
+                                currentDir = subDir;
+                            }
+
+                            destDirectory = currentDir;
+                        }
+
+                        // Add or replace the file in the RPF
+                        if (File.Exists(destFilePath))
+                        {
+                            byte[] fileData = File.ReadAllBytes(sourceFilePath);
+                            RpfFile.CreateFile(destDirectory, Path.GetFileName(destFilePath), fileData, true);
+                        }
+                        else
+                        {
+                            MessageBox.Show($"Error: Source file '{sourceFilePath}' does not exist.");
+                        }
+                    }
+                }
+
+                MessageBox.Show("Installation and reinsertion completed successfully.");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error installing .oiv file: {ex.Message}");
+            }
+            finally
+            {
+                // Delete folders after all operations are complete
+                foreach (string folder in foldersToDelete)
+                {
+                    if (Directory.Exists(folder))
+                    {
+                        DeleteDirectoryRecursively(folder);
+                    }
+                }
+
+                // Clean up temporary files
+                if (Directory.Exists(tempFolder))
+                    Directory.Delete(tempFolder, true);
+            }
+        }
+
+
+        private void RepackRpfFiles(string sourceFolder, string destinationFolder, List<string> foldersToDelete)
+        {
+            try
+            {
+                foreach (string unpackedRpfFolder in unpackedFolders)
+                {
+                    if (!Directory.Exists(unpackedRpfFolder))
+                    {
+                        // Skip if the folder no longer exists
+                        continue;
+                    }
+
+                    // Determine the original RPF file path
+                    string rpfName = Path.GetFileName(unpackedRpfFolder) + ".rpf";
+                    string originalRpfPath = Path.Combine(Path.GetDirectoryName(unpackedRpfFolder), rpfName);
+
+                    // Delete the original RPF file if it exists
+                    if (File.Exists(originalRpfPath))
+                    {
+                        File.Delete(originalRpfPath);
+                    }
+
+                    // Ensure the destination directory exists
+                    string destinationDirectory = Path.GetDirectoryName(originalRpfPath);
+                    if (!Directory.Exists(destinationDirectory))
+                    {
+                        Directory.CreateDirectory(destinationDirectory);
+                    }
+
+                    // Create a new RPF file at the original path
+                    RpfFile newRpf = RpfFile.CreateNew(destinationDirectory, rpfName, RpfEncryption.OPEN);
+
+                    // Add files from the converted folder to the new RPF
+                    string relativePath = GetRelativePath(sourceFolder, unpackedRpfFolder);
+                    string convertedFolderPath = Path.Combine(destinationFolder, relativePath);
+
+                    if (Directory.Exists(convertedFolderPath))
+                    {
+                        AddFilesToRpf(newRpf, convertedFolderPath, newRpf.Root);
+                    }
+                    else
+                    {
+                        MessageBox.Show($"Error: Converted folder '{convertedFolderPath}' does not exist.");
+                        continue;
+                    }
+
+                    // Add the folder to the list of folders to delete later
+                    foldersToDelete.Add(unpackedRpfFolder);
+
+
+
+                    MessageBox.Show($"Repacked RPF: {originalRpfPath}");
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error repacking RPF files: {ex.Message}");
+            }
+        }
+        private void AddFilesToRpf(RpfFile rpf, string folderPath, RpfDirectoryEntry parentDirectory)
+        {
+            foreach (string filePath in Directory.GetFiles(folderPath))
+            {
+                byte[] fileData = File.ReadAllBytes(filePath);
+                string fileName = Path.GetFileName(filePath);
+
+                // Add the file to the RPF
+                RpfFile.CreateFile(parentDirectory, fileName, fileData);
+            }
+
+            foreach (string subFolderPath in Directory.GetDirectories(folderPath))
+            {
+                string folderName = Path.GetFileName(subFolderPath);
+
+                // Create a subdirectory in the RPF
+                RpfDirectoryEntry subDirectory = RpfFile.CreateDirectory(parentDirectory, folderName);
+
+                // Recursively add files to the subdirectory
+                AddFilesToRpf(rpf, subFolderPath, subDirectory);
+            }
+        }
+        private static string GetRelativePath(string basePath, string targetPath)
+        {
+            Uri baseUri = new Uri(AppendDirectorySeparatorChar(basePath));
+            Uri targetUri = new Uri(targetPath);
+
+            Uri relativeUri = baseUri.MakeRelativeUri(targetUri);
+            string relativePath = Uri.UnescapeDataString(relativeUri.ToString());
+
+            return relativePath.Replace('/', Path.DirectorySeparatorChar);
+        }
+        private static string AppendDirectorySeparatorChar(string path)
+        {
+            if (!path.EndsWith(Path.DirectorySeparatorChar.ToString(), StringComparison.Ordinal))
+            {
+                return path + Path.DirectorySeparatorChar;
+            }
+            return path;
+        }
+
+        private HashSet<string> unpackedFolders = new HashSet<string>();
+
+        private void UnpackRpfFiles(string sourceFolder, string destinationFolder)
+        {
+            try
+            {
+                foreach (string rpfFilePath in Directory.GetFiles(sourceFolder, "*.rpf", SearchOption.AllDirectories))
+                {
+                    string outputFolder = Path.Combine(destinationFolder, Path.GetDirectoryName(GetRelativePath(sourceFolder, rpfFilePath)), Path.GetFileNameWithoutExtension(rpfFilePath));
+
+                    Directory.CreateDirectory(outputFolder);
+
+                    // Track the unpacked folder
+                    unpackedFolders.Add(outputFolder);
+
+                    RpfFile rpf = new RpfFile(rpfFilePath, GetRelativePath(sourceFolder, rpfFilePath));
+                    rpf.ScanStructure(null, null);
+
+                    foreach (var entry in rpf.AllEntries)
+                    {
+                        if (entry is RpfFileEntry fileEntry)
+                        {
+                            string extractedFilePath = Path.Combine(outputFolder, fileEntry.Name);
+
+                            // Use GetFileDataCompressResources to handle extraction and processing
+                            byte[] fileData = GetFileDataCompressResources(new MainListItem(fileEntry, "", null));
+
+                            if (fileData == null || fileData.Length == 0)
+                            {
+                                MessageBox.Show($"Error: Extracted data for file '{fileEntry.Name}' is empty or null.");
+                                continue;
+                            }
+
+                            // Write the processed file to disk
+                            File.WriteAllBytes(extractedFilePath, fileData);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error unpacking RPF files: {ex.Message}");
+            }
+        }
+
+        private void ConvertAssets(string inputFolder, string outputFolder)
+        {
+            var allPaths = Directory.GetFiles(inputFolder, "*.*", SearchOption.AllDirectories);
+            foreach (var path in allPaths)
+            {
+                try
+                {
+                    var extension = Path.GetExtension(path).ToLowerInvariant();
+                    var relativePath = path.Substring(AppendDirectorySeparatorChar(inputFolder).Length).TrimStart(Path.DirectorySeparatorChar);
+                    var outputPath = Path.Combine(outputFolder, relativePath);
+
+                    //if (File.Exists(outputPath))
+                    //{
+                    //    // Skip if the output file already exists
+                    //    continue;
+                    //}
+
+                    var outputDir = Path.GetDirectoryName(outputPath);
+                    if (!Directory.Exists(outputDir))
+                    {
+                        Directory.CreateDirectory(outputDir);
+                    }
+
+                    var dataIn = File.ReadAllBytes(path);
+                    byte[] dataOut = null;
+                    RpfResourceFileEntry rfe = null;
+
+                    switch (extension)
+                    {
+                        case ".ytd":
+                            var ytd = new YtdFile();
+                            ytd.Load(dataIn);
+                            rfe = ytd.RpfFileEntry as RpfResourceFileEntry;
+                            dataOut = (rfe?.Version == 5) ? dataIn : ytd.Save();
+                            break;
+                        case ".ydr":
+                            var ydr = new YdrFile();
+                            ydr.Load(dataIn);
+                            rfe = ydr.RpfFileEntry as RpfResourceFileEntry;
+                            dataOut = (rfe?.Version == 159) ? dataIn : ydr.Save();
+                            break;
+                        case ".ydd":
+                            var ydd = new YddFile();
+                            ydd.Load(dataIn);
+                            rfe = ydd.RpfFileEntry as RpfResourceFileEntry;
+                            dataOut = (rfe?.Version == 159) ? dataIn : ydd.Save();
+                            break;
+                        case ".yft":
+                            var yft = new YftFile();
+                            yft.Load(dataIn);
+                            rfe = yft.RpfFileEntry as RpfResourceFileEntry;
+                            dataOut = (rfe?.Version == 171) ? dataIn : yft.Save();
+                            break;
+                        case ".ypt":
+                            var ypt = new YptFile();
+                            ypt.Load(dataIn);
+                            rfe = ypt.RpfFileEntry as RpfResourceFileEntry;
+                            dataOut = (rfe?.Version == 71) ? dataIn : ypt.Save();
+                            break;
+                        default:
+                            // Skip unsupported file types
+                            continue;
+                    }
+
+                    if (dataOut != null)
+                    {
+                        File.WriteAllBytes(outputPath, dataOut);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Error converting file {path}: {ex.Message}");
+                }
+            }
+        }
+        private void ToolsInstallOivMenu_Click(object sender, EventArgs e)
+        {
+            using (OpenFileDialog openFileDialog = new OpenFileDialog())
+            {
+                openFileDialog.Filter = "OIV Files (*.oiv)|*.oiv";
+                openFileDialog.Title = "Select an .oiv file";
+
+                if (openFileDialog.ShowDialog() == DialogResult.OK)
+                {
+                    string oivFilePath = openFileDialog.FileName;
+                    InstallOivFile(oivFilePath);
+                }
+            }
+        }
+
+
+        //public void ExtractIovFile(string assemblyXmlPath)
+        //{
+        //    if (!File.Exists(assemblyXmlPath))
+        //    {
+        //        MessageBox.Show($"Assembly XML file not found: {assemblyXmlPath}");
+        //        return;
+        //    }
+
+        //    XmlDocument xmlDoc = new XmlDocument();
+        //    xmlDoc.Load(assemblyXmlPath);
+
+        //    string gtaFolder = GTAFolder.GetCurrentGTAFolderWithTrailingSlash();
+        //    string modsFolder = Path.Combine(gtaFolder, "mods");
+
+        //    foreach (XmlNode archiveNode in xmlDoc.SelectNodes("//archive"))
+        //    {
+        //        string archivePath = archiveNode.Attributes["path"]?.InnerText;
+        //        if (string.IsNullOrEmpty(archivePath)) continue;
+
+        //        string sourcePath = Path.Combine(gtaFolder, archivePath);
+        //        string destPath = Path.Combine(modsFolder, archivePath);
+
+        //        // Ensure the destination directory exists
+        //        Directory.CreateDirectory(Path.GetDirectoryName(destPath));
+
+        //        // Copy the RPF file
+        //        if (File.Exists(sourcePath))
+        //        {
+        //            File.Copy(sourcePath, destPath, true);
+        //        }
+
+        //        // Process <add> elements within the current <archive>
+        //        foreach (XmlNode addNode in archiveNode.SelectNodes("add"))
+        //        {
+        //            string sourceFile = addNode.Attributes["source"]?.InnerText;
+        //            string destFile = addNode.InnerText;
+
+        //            if (string.IsNullOrEmpty(sourceFile) || string.IsNullOrEmpty(destFile)) continue;
+
+        //            string sourceFilePath = Path.Combine(gtaFolder, sourceFile);
+        //            string destFilePath = Path.Combine(modsFolder, archivePath, destFile.TrimStart('\\'));
+
+        //            // Ensure the destination directory exists
+        //            Directory.CreateDirectory(Path.GetDirectoryName(destFilePath));
+
+        //            // Copy the file
+        //            if (File.Exists(sourceFilePath))
+        //            {
+        //                File.Copy(sourceFilePath, destFilePath, true);
+        //            }
+        //        }
+        //    }
+
+        //    MessageBox.Show("Extraction completed successfully.");
+        //}
+
         private void SetTheme(string themestr, bool changing = true)
         {
             //string configFile = Path.Combine(Path.GetDirectoryName(Application.ExecutablePath), "DockPanel.temp.config");
@@ -173,9 +804,63 @@ namespace CodeWalker
 
         private void Init()
         {
-            //called from ExploreForm_Load
+        // Ensure encryption tables are loaded before proceeding
+        try
+        {
+            GTA5Keys.LoadFromPath(GTAFolder.CurrentGTAFolder, GTAFolder.IsGen9, Settings.Default.Key);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Error loading encryption tables: {ex.Message}");
+            return;
+        }
 
-            InitFileTypes();
+        // Existing initialization logic
+        InitFileTypes();
+
+        if (!GTAFolder.UpdateGTAFolder(true))
+        {
+            Close();
+            return;
+        }
+
+        Task.Run(() =>
+        {
+            try
+            {
+                RefreshMainTreeView();
+                UpdateStatus("Scan complete.");
+                InitFileCache();
+
+                while (!IsDisposed)
+                {
+                    if (FileCache.IsInited)
+                    {
+                        FileCache.BeginFrame();
+                        bool fcItemsPending = FileCache.ContentThreadProc();
+
+                        if (!fcItemsPending)
+                        {
+                            Thread.Sleep(10);
+                        }
+                    }
+                    else
+                    {
+                        Thread.Sleep(20);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                UpdateErrorLog($"Initialization error: {ex.Message}");
+            }
+        });
+        
+
+
+        //called from ExploreForm_Load
+
+        InitFileTypes();
 
             // This is probably not necessary now that the GTA folder is checked 
             // in the Program.cs when the game is initiated, but we will leave it 
@@ -2925,6 +3610,7 @@ namespace CodeWalker
 
                     byte[] data = XmlMeta.GetData(doc, mformat, fpathin);
 
+
                     if (data != null)
                     {
                         if (CurrentFolder.RpfFolder != null)
@@ -2937,6 +3623,10 @@ namespace CodeWalker
                             File.WriteAllBytes(outfpath, data);
                             CurrentFolder.EnsureFile(outfpath);
                         }
+                    }
+                    else if (data == null)
+                    {
+                        ImportRaw(fpaths);
                     }
                     else
                     {
@@ -3283,7 +3973,7 @@ namespace CodeWalker
             {
                 if (item.Folder?.RpfFile != null)
                 {
-                    //confirm deletion of RPF archives, just to be friendly.
+                    // Confirm deletion of RPF archives
                     if (MessageBox.Show("Are you sure you want to delete this archive?\n" + item.Path, "Confirm delete archive", MessageBoxButtons.YesNo) != DialogResult.Yes)
                     {
                         return;
@@ -3291,38 +3981,32 @@ namespace CodeWalker
                 }
                 else if ((item.Folder?.GetItemCount() ?? 0) > 0)
                 {
-                    //confirm deletion of non-empty folders, just to be friendly.
+                    // Confirm deletion of non-empty folders
                     if (MessageBox.Show("Are you sure you want to delete this folder and all its contents?\n" + item.Path, "Confirm delete folder", MessageBoxButtons.YesNo) != DialogResult.Yes)
                     {
                         return;
                     }
                 }
 
-                var parent = item.Parent;
-                if (parent.RpfFolder != null)
+                if (item.Folder != null && item.Folder.RpfFile == null)
                 {
-                    //delete an item in an RPF.
+                    // Recursively delete all files and subdirectories
+                    DeleteDirectoryRecursively(item.FullPath);
+                }
+                else if (item.Parent?.RpfFolder != null)
+                {
+                    // Delete an item in an RPF
                     if (!EnsureRpfValidEncryption()) return;
 
                     RpfEntry entry = item.GetRpfEntry();
-
                     RpfFile.DeleteEntry(entry);
                 }
                 else
                 {
-                    //delete an item in the filesystem.
-                    if ((item.Folder != null) && (item.Folder.RpfFile == null))
-                    {
-                        Directory.Delete(item.FullPath);
-                    }
-                    else
-                    {
-                        File.Delete(item.FullPath);
-
-                        item.Parent?.RemoveFile(item.FullPath);
-                    }
+                    // Delete a file
+                    File.Delete(item.FullPath);
+                    item.Parent?.RemoveFile(item.FullPath);
                 }
-
 
                 if (item.Folder != null)
                 {
@@ -3330,13 +4014,26 @@ namespace CodeWalker
                 }
 
                 RemoveListItem(item);
-
             }
             catch (Exception ex)
             {
                 MessageBox.Show("Error deleting " + item.Path + ": " + ex.Message, "Unable to delete " + item.Name);
-                return;
             }
+        }
+
+        private void DeleteDirectoryRecursively(string directoryPath)
+        {
+            foreach (var file in Directory.GetFiles(directoryPath))
+            {
+                File.Delete(file);
+            }
+
+            foreach (var subDirectory in Directory.GetDirectories(directoryPath))
+            {
+                DeleteDirectoryRecursively(subDirectory);
+            }
+
+            Directory.Delete(directoryPath);
         }
         private void DefragmentSelected()
         {
@@ -4409,6 +5106,27 @@ namespace CodeWalker
         private void CopyToModsFolderButton_Click(object sender, EventArgs e)
         {
             CopyToModsFolder();
+        }
+        // Add this method to the RpfDirectoryEntry class
+        public static RpfEntry FindEntry(RpfDirectoryEntry directory, string path)
+        {
+            if (directory == null || string.IsNullOrEmpty(path))
+                return null;
+
+            foreach (var file in directory.Files)
+            {
+                if (file.Path.Equals(path, StringComparison.OrdinalIgnoreCase))
+                    return file;
+            }
+
+            foreach (var subDirectory in directory.Directories)
+            {
+                var result = FindEntry(subDirectory, path);
+                if (result != null)
+                    return result;
+            }
+
+            return null;
         }
     }
 

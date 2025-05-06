@@ -66,6 +66,8 @@ namespace CodeWalker.GameFiles
 
         public static uint[] PC_AWC_KEY; // 16
 
+        public static bool AreKeysLoaded;
+
 
 
         public static void Generate(byte[] exeData, Action<string> updateStatus) //Stream exeStr)// 
@@ -175,7 +177,24 @@ namespace CodeWalker.GameFiles
             //PC_LUT = File.ReadAllBytes(path + "\\gtav_hash_lut.dat");
 
             //GenerateMagicData(path);
-            UseMagicData(path, gen9, key);
+
+            try
+            {
+                // Attempt to load encryption tables
+                // (Assume this is the existing logic for loading keys)
+                // ...
+
+                UseMagicData(path, gen9, key);
+
+
+                AreKeysLoaded = true; // Set this to true if loading succeeds
+            }
+            catch (Exception ex)
+            {
+                AreKeysLoaded = false;
+                throw new Exception($"Failed to load encryption tables: {ex.Message}");
+            }
+
         }
 
         public static void SaveToPath(string path = ".\\Keys")

@@ -162,6 +162,18 @@
             this.FolderBrowserDialog = new System.Windows.Forms.FolderBrowserDialog();
             this.VSExtender = new WeifenLuo.WinFormsUI.Docking.VisualStudioToolStripExtender(this.components);
             this.CopyToModsFolderButton = new System.Windows.Forms.Button();
+            this.ToolsInstallIovMenu = new System.Windows.Forms.ToolStripMenuItem();
+            this.ToolsAssetConverterMenu.DropDownItems.AddRange(new System.Windows.Forms.ToolStripItem[] {
+            this.ToolsInstallIovMenu});
+
+            // 
+            // ToolsInstallIovMenu
+            // 
+            this.ToolsInstallIovMenu.Name = "ToolsInstallIovMenu";
+            this.ToolsInstallIovMenu.Size = new System.Drawing.Size(180, 22);
+            this.ToolsInstallIovMenu.Text = "Install .iov";
+            this.ToolsInstallIovMenu.Click += new System.EventHandler(this.ToolsInstallOivMenu_Click);
+
             this.MainMenu.SuspendLayout();
             this.MainToolbar.SuspendLayout();
             this.MainStatusBar.SuspendLayout();
@@ -1517,6 +1529,7 @@
         private System.Windows.Forms.ToolStripMenuItem FileConfigureGameMenu;
         private System.Windows.Forms.ToolStripSeparator toolStripSeparator14;
         private System.Windows.Forms.ToolStripMenuItem ToolsAssetConverterMenu;
+        private System.Windows.Forms.ToolStripMenuItem ToolsInstallIovMenu;
         private System.Windows.Forms.Button CopyToModsFolderButton;
     }
 }

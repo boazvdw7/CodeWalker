@@ -2,7 +2,7 @@
     <h1>CodeWalker by dexyfex</h1>
 </div>
 
-## Included Fixes:
+## Included Fixes (RPF Explorer):
 - Dragging + Dropping files now works.
 - Recursively deleting folders now works.
 - [BETA] Added the option to install .OIV files (Converts files to the new format automatically!).

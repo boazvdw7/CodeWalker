@@ -1,5 +1,10 @@
 <div align="center">
     <h1>CodeWalker by dexyfex</h1>
+    <h2>Modified version</h2>
+    Included Fixes:
+    - Dragging + Dropping files now works.
+    - Recursively deleting folders now works.
+    - [BETA] Added the option to install .OIV files (Converts files to the new format automatically!).
     This program is for viewing the contents of GTAV RPF archives.
 </div>
 

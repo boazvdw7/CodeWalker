@@ -1,4 +1,4 @@
-name: Build 
+name: Build
 
 on:
   push:
@@ -19,13 +19,13 @@ jobs:
         uses: NuGet/setup-nuget@v1
 
       - name: Restore NuGet packages
-        run: nuget restore CodeWalker.sln
+        run: nuget restore CodeWalker/CodeWalker.RPFExplorer/CodeWalker.RPFExplorer.csproj
 
-      - name: Build solution
-        run: msbuild CodeWalker.sln /p:Configuration=Release
+      - name: Build CodeWalker.RPFExplorer project
+        run: msbuild CodeWalker/CodeWalker.RPFExplorer/CodeWalker.RPFExplorer.csproj /p:Configuration=Release
 
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: BuildOutput
-          path: '**/bin/Release/*'
+          path: '**/CodeWalker/CodeWalker.RPFExplorer/bin/Release/*'

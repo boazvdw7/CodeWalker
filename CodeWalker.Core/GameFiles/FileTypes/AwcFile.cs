@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using TC = System.ComponentModel.TypeConverterAttribute;
 using EXP = System.ComponentModel.ExpandableObjectConverter;
 using System.Xml;
+using NAudio.Wave;
 
 namespace CodeWalker.GameFiles
 {
@@ -790,7 +791,8 @@ namespace CodeWalker.GameFiles
     public enum AwcCodecType
     {
         PCM = 0,
-        ADPCM = 4
+        ADPCM = 4,
+        MP3 = 7
     }
 
     [TC(typeof(EXP))] public class AwcStreamInfo
@@ -996,6 +998,7 @@ namespace CodeWalker.GameFiles
                 {
                     case AwcCodecType.PCM:
                     case AwcCodecType.ADPCM:
+                    case AwcCodecType.MP3:
                         break;
                     default:
                         codec = "Unknown";
@@ -1510,9 +1513,51 @@ namespace CodeWalker.GameFiles
             var data = GetRawData();
 
             var codec = StreamFormat?.Codec ?? FormatChunk?.Codec ?? AwcCodecType.PCM;
-            if (codec == AwcCodecType.ADPCM)//just convert ADPCM to PCM for compatibility reasons
+            if (codec == AwcCodecType.ADPCM) //just convert ADPCM to PCM for compatibility reasons
             {
                 data = ADPCMCodec.DecodeADPCM(data, SampleCount);
+            }
+            else if (codec == AwcCodecType.MP3)
+            {
+                try
+                {
+                    using (var mp3Stream = new MemoryStream(data))
+                    using (var mp3Reader = new Mp3FileReader(mp3Stream))
+                    using (var pcmStream = WaveFormatConversionStream.CreatePcmStream(mp3Reader))
+                    using (var ms = new MemoryStream())
+                    {
+                        pcmStream.CopyTo(ms);
+                        return ms.ToArray(); // Return PCM data
+                    }
+                }
+                catch (InvalidOperationException ex) // catch all InvalidOperationException, not just sample rate
+                {
+                    // Fallback: re-encode to a fixed sample rate using MediaFoundationReader/Resampler
+                    string tempFile = Path.GetTempFileName();
+                    try
+                    {
+                        File.WriteAllBytes(tempFile, data);
+                        using (var mfReader = new NAudio.Wave.MediaFoundationReader(tempFile))
+                        {
+                            var targetFormat = new WaveFormat(48000, 16, 1); // 48kHz, 16-bit, mono
+                            using (var resampler = new NAudio.Wave.MediaFoundationResampler(mfReader, targetFormat))
+                            using (var ms = new MemoryStream())
+                            {
+                                byte[] buffer = new byte[8192];
+                                int bytesRead;
+                                while ((bytesRead = resampler.Read(buffer, 0, buffer.Length)) > 0)
+                                {
+                                    ms.Write(buffer, 0, bytesRead);
+                                }
+                                return ms.ToArray();
+                            }
+                        }
+                    }
+                    finally
+                    {
+                        try { File.Delete(tempFile); } catch { }
+                    }
+                }
             }
 
             return data;
@@ -1919,30 +1964,6 @@ namespace CodeWalker.GameFiles
             Codec = (AwcCodecType)r.ReadByte();
             Unused1 = r.ReadByte();
             Unused2 = r.ReadUInt16();
-
-            #region test
-            //switch (Codec)
-            //{
-            //    case AwcCodecFormat.ADPCM:
-            //        break;
-            //    default:
-            //        break;//no hit
-            //}
-            //switch (Unused1)
-            //{
-            //    case 0:
-            //        break;
-            //    default:
-            //        break;//no hit
-            //}
-            //switch (Unused2)
-            //{
-            //    case 0:
-            //        break;
-            //    default:
-            //        break;//no hit
-            //}
-            #endregion
         }
         public void Write(DataWriter w)
         {

@@ -57,7 +57,6 @@ namespace CodeWalker
 
         public ThemeBase Theme { get; private set; }
 
-
         public ExploreForm()
         {
             InitializeComponent();
@@ -153,106 +152,180 @@ namespace CodeWalker
             XmlDocument xmlDoc = new XmlDocument();
             xmlDoc.Load(assemblyXmlPath);
 
-            // Process <archive> nodes in assembly.xml
+            // First pass: Copy all files to the mods folder
             foreach (XmlNode archiveNode in xmlDoc.SelectNodes("//archive"))
             {
                 string archivePath = archiveNode.Attributes["path"]?.InnerText;
                 if (string.IsNullOrEmpty(archivePath)) continue;
 
-                // Construct the source path for the original RPF file in the GTA V root directory
-                string originalPath = Path.Combine(gtaRootFolder, archivePath.Replace('/', '\\'));
-                if (!File.Exists(originalPath))
+                // Construct the destination path in the mods folder
+                string destPath = Path.Combine(modsFolder, archivePath.Replace('/', '\\'));
+
+                try
                 {
-                    MessageBox.Show($"Error: Original RPF file '{originalPath}' does not exist.");
+                    // Ensure the destination directory exists
+                    string destDirectory = Path.GetDirectoryName(destPath);
+                    if (!string.IsNullOrEmpty(destDirectory) && !Directory.Exists(destDirectory))
+                    {
+                        Directory.CreateDirectory(destDirectory);
+                    }
+
+                    // Check if the original RPF file exists in the GTA V root directory
+                    string originalPath = Path.Combine(gtaRootFolder, archivePath.Replace('/', '\\'));
+                    if (!File.Exists(originalPath))
+                    {
+                        if (archiveNode.Attributes["createIfNotExist"]?.InnerText == "True")
+                        {
+                            string archiveName = Path.GetFileName(destPath); // e.g., "dlc.rpf"
+                            RpfFile.CreateNew(destPath, archiveName, RpfEncryption.OPEN);
+                        }
+                        else
+                        {
+                            MessageBox.Show($"Warning: Original RPF file '{originalPath}' does not exist. Skipping.");
+                            continue;
+                        }
+                    }
+                    else
+                    {
+                        // Copy the original RPF file to the mods folder if it doesn't already exist
+                        if (!File.Exists(destPath))
+                        {
+                            File.Copy(originalPath, destPath, true);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // Log the error and continue
+                    MessageBox.Show($"Warning: Could not process archive '{archivePath}'. Error: {ex.Message}");
                     continue;
                 }
+            }
+
+            // Second pass: Modify files in the mods folder
+            foreach (XmlNode archiveNode in xmlDoc.SelectNodes("//archive"))
+            {
+                string archivePath = archiveNode.Attributes["path"]?.InnerText;
+                if (string.IsNullOrEmpty(archivePath)) continue;
 
                 // Construct the destination path in the mods folder
                 string destPath = Path.Combine(modsFolder, archivePath.Replace('/', '\\'));
 
-                // Ensure the destination directory exists
-                string destDirectory = Path.GetDirectoryName(destPath);
-                if (!string.IsNullOrEmpty(destDirectory) && !Directory.Exists(destDirectory))
+                try
                 {
-                    Directory.CreateDirectory(destDirectory);
-                }
+                    // Open the destination RPF file
+                    RpfFile rpf = new RpfFile(destPath, archivePath);
+                    rpf.ScanStructure(null, null);
 
-                // Copy the original RPF file to the mods folder if it doesn't already exist
-                if (!File.Exists(destPath))
-                {
-                    File.Copy(originalPath, destPath, true);
-                }
-
-
-                // !!!MIGHT BREAK THINGS!!!
-                if (!File.Exists(destPath))
-                {
-                    if (archiveNode.Attributes["createIfNotExist"]?.InnerText == "True")
+                    // Process <text> elements within the current <archive>
+                    foreach (XmlNode textNode in archiveNode.SelectNodes("text"))
                     {
-                        string archiveName = Path.GetFileName(destPath); // gets "dlc.rpf"
-                        // Create an empty RPF file (RPF7 format)
-                        RpfFile.CreateNew(destPath, archiveName, RpfEncryption.OPEN);
-                    }
-                    else
-                    {
-                        MessageBox.Show($"Error: RPF file '{destPath}' not found and createIfNotExist=False.");
-                        continue;
-                    }
-                }
+                        string textPath = textNode.Attributes["path"]?.InnerText;
+                        if (string.IsNullOrEmpty(textPath)) continue;
 
-
-                // Open the destination RPF file
-                RpfFile rpf = new RpfFile(destPath, archivePath);
-                rpf.ScanStructure(null, null);
-
-                // Automatically set the RPF encryption to OPEN
-                if (rpf.Encryption != RpfEncryption.OPEN)
-                {
-                    RpfFile.SetEncryptionType(rpf, RpfEncryption.OPEN);
-                }
-
-                // Process <add> elements within the current <archive>
-                foreach (XmlNode addNode in archiveNode.SelectNodes("add"))
-                {
-                    string sourceFile = addNode.Attributes["source"]?.InnerText;
-                    string destFile = addNode.InnerText;
-
-                    if (string.IsNullOrEmpty(sourceFile) || string.IsNullOrEmpty(destFile)) continue;
-
-                    string sourceFilePath = Path.Combine(tempFolder, "content", sourceFile.Replace('/', '\\'));
-                    string destFilePath = destFile.Replace('/', '\\').TrimStart('\\');
-
-                    // Locate or create the destination directory in the RPF
-                    RpfDirectoryEntry destRpfDirectory = RpfDirectoryEntry.FindEntry(rpf.Root, Path.GetDirectoryName(destFilePath)) as RpfDirectoryEntry;
-                    if (destRpfDirectory == null)
-                    {
-                        // Create the missing directory structure
-                        string[] pathParts = Path.GetDirectoryName(destFilePath).Split(new[] { '\\' }, StringSplitOptions.RemoveEmptyEntries);
-                        RpfDirectoryEntry currentDir = rpf.Root;
-
-                        foreach (string part in pathParts)
+                        try
                         {
-                            RpfDirectoryEntry subDir = currentDir.Directories.FirstOrDefault(d => d.Name.Equals(part, StringComparison.OrdinalIgnoreCase));
-                            if (subDir == null)
+                            // Ensure the text file exists in the mods folder
+                            RpfEntry entry = RpfDirectoryEntry.FindEntry(rpf.Root, textPath.Replace('/', '\\'));
+                            if (entry == null)
                             {
-                                subDir = RpfFile.CreateDirectory(currentDir, part);
+                                // Copy the file from the original location if it exists
+                                string originalTextPath = Path.Combine(gtaRootFolder, textPath.Replace('/', '\\'));
+                                if (File.Exists(originalTextPath))
+                                {
+                                    byte[] fileData = File.ReadAllBytes(originalTextPath);
+                                    RpfFile.CreateFile(rpf.Root, textPath, fileData);
+                                }
+                                else if (textNode.Attributes["createIfNotExist"]?.InnerText == "True")
+                                {
+                                    // Create an empty file if it doesn't exist
+                                    byte[] emptyData = Encoding.UTF8.GetBytes("");
+                                    RpfFile.CreateFile(rpf.Root, textPath, emptyData);
+                                }
+                                else
+                                {
+                                    MessageBox.Show($"Warning: Text file '{textPath}' does not exist in '{destPath}'. Skipping.");
+                                    continue;
+                                }
+
+                                // Refresh the entry after creation
+                                entry = RpfDirectoryEntry.FindEntry(rpf.Root, textPath.Replace('/', '\\'));
                             }
-                            currentDir = subDir;
+
+                            // Extract the file data
+                            byte[] existingFileData = rpf.ExtractFileBinary(entry as RpfBinaryFileEntry, null);
+                            if (existingFileData == null)
+                            {
+                                MessageBox.Show($"Error: Unable to extract file '{textPath}' from '{destPath}'.");
+                                continue;
+                            }
+
+                            // Modify the file content
+                            string fileContent = Encoding.UTF8.GetString(existingFileData);
+                            List<string> lines = fileContent.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None).ToList();
+
+                            foreach (XmlNode insertNode in textNode.SelectNodes("insert"))
+                            {
+                                string where = insertNode.Attributes["where"]?.InnerText;
+                                string line = insertNode.Attributes["line"]?.InnerText;
+                                string condition = insertNode.Attributes["condition"]?.InnerText;
+                                string newItem = insertNode.InnerText.Trim();
+
+                                if (string.IsNullOrEmpty(where) || string.IsNullOrEmpty(line) || string.IsNullOrEmpty(newItem))
+                                {
+                                    MessageBox.Show($"Skipping insertion: Missing required attributes in 'insert' node for '{textPath}'.");
+                                    continue;
+                                }
+
+                                // Check the condition (if specified)
+                                if (!string.IsNullOrEmpty(condition) && lines.Any(l => l.Contains(condition)))
+                                {
+                                    MessageBox.Show($"Condition '{condition}' already exists in '{textPath}'. Skipping insertion.");
+                                    continue;
+                                }
+
+                                // Determine the insertion point
+                                int insertIndex = -1;
+                                for (int i = 0; i < lines.Count; i++)
+                                {
+                                    if (lines[i].Contains(line))
+                                    {
+                                        insertIndex = (where.Equals("Before", StringComparison.OrdinalIgnoreCase)) ? i : i + 1;
+                                        break;
+                                    }
+                                }
+
+                                if (insertIndex >= 0)
+                                {
+                                    // Insert the new line
+                                    lines.Insert(insertIndex, newItem);
+                                    MessageBox.Show($"Inserted line '{newItem}' into '{textPath}' at index {insertIndex}.");
+                                }
+                                else
+                                {
+                                    MessageBox.Show($"Line '{line}' not found in '{textPath}'. Skipping insertion.");
+                                }
+                            }
+
+                            // Save the modified content back to the RPF archive
+                            string modifiedContent = string.Join("\n", lines);
+                            byte[] modifiedData = Encoding.UTF8.GetBytes(modifiedContent);
+                            RpfFile.CreateFile(rpf.Root, textPath, modifiedData, true);
+                            MessageBox.Show($"Successfully updated '{textPath}' in '{destPath}'.");
                         }
-
-                        destRpfDirectory = currentDir;
+                        catch (Exception ex)
+                        {
+                            // Log the error and continue
+                            MessageBox.Show($"Warning: Could not process text file '{textPath}'. Error: {ex.Message}");
+                            continue;
+                        }
                     }
-
-                    // Add or replace the file in the RPF
-                    if (File.Exists(sourceFilePath))
-                    {
-                        byte[] fileData = File.ReadAllBytes(sourceFilePath);
-                        RpfFile.CreateFile(destRpfDirectory, Path.GetFileName(destFilePath), fileData, true);
-                    }
-                    else
-                    {
-                        MessageBox.Show($"Error: Source file '{sourceFilePath}' does not exist.");
-                    }
+                }
+                catch (Exception ex)
+                {
+                    // Log the error and continue
+                    MessageBox.Show($"Warning: Could not process archive '{archivePath}'. Error: {ex.Message}");
+                    continue;
                 }
             }
         }

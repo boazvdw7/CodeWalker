@@ -8,6 +8,7 @@
 - Dragging + Dropping files now works.
 - Recursively deleting folders now works.
 - [BETA] Added the option to install .OIV files (Converts files to the new format automatically!).
+- [BETA] Playing MP3 Audio
 
 <br>
 
